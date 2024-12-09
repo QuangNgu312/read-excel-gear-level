@@ -21,14 +21,60 @@ const ExcelReader = () => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const data = new Uint8Array(e.target.result);
-        setFileData(data);  // Save file data to state
         const workbook = XLSX.read(data, { type: 'array' });
+
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+
+        const unmergedData = unmergeSheet(worksheet);
+        setFileData(file);
+        setSheetData(unmergedData);
         setSheetNames(workbook.SheetNames);
-        setSelectedSheet(workbook.SheetNames[0]);
-        loadSheetData(workbook, workbook.SheetNames[0]);
       };
       reader.readAsArrayBuffer(file);
     }
+  }
+  const ReadFile = (file, sheetName) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[sheetName];
+
+        const unmergedData = unmergeSheet(worksheet);
+        setFileData(file);
+        setSheetData(unmergedData);
+        setSheetNames(workbook.SheetNames);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+  const unmergeSheet = (worksheet) => {
+    // Parse sheet into JSON for easier manipulation
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+    // Check for merged cells
+    const merges = worksheet['!merges'] || [];
+    merges.forEach((merge) => {
+      const startRow = merge.s.r; // Start row
+      const endRow = merge.e.r;   // End row
+      const startCol = merge.s.c; // Start column
+      const endCol = merge.e.c;   // End column
+
+      // Value in the top-left cell of the merge
+      const value = jsonData[startRow][startCol];
+
+      // Apply value to all cells in the merged range
+      for (let row = startRow; row <= endRow; row++) {
+        for (let col = startCol; col <= endCol; col++) {
+          if (!jsonData[row]) jsonData[row] = [];
+          jsonData[row][col] = value;
+        }
+      }
+    });
+
+    return jsonData;
   };
 
   const loadSheetData = (workbook, sheetName) => {
@@ -39,25 +85,14 @@ const ExcelReader = () => {
 
   const handleSheetSelect = (event) => {
     const selectedSheetName = event.target.value;
+    ReadFile(fileData, selectedSheetName);
     setSelectedSheet(selectedSheetName);
-    const workbook = XLSX.read(fileData, { type: 'array' });
-    loadSheetData(workbook, selectedSheetName);
   };
 
   const removeLastTwoColumns = (data) => data.map(row => row.slice(0, -2));
 
   const updateHeaderNames = (headers) => {
     const updatedHeaders = [...headers];
-    const defaultNames = ["wave", "start time", "end time", "total wave", "total enemy"];
-    defaultNames.forEach((name, idx) => updatedHeaders[idx] = name);
-
-    const groupNames = columnNames;
-    const suffixes = ["(Quantity)", "(Scale)", "(Min distance)", "(Max distance)", "(Radius)", "(Type spawn)"];
-    for (let i = 5; i < updatedHeaders.length; i++) {
-      const groupIndex = Math.floor((i - 5) /6);
-      if (groupNames[groupIndex]) updatedHeaders[i] = "id:" + groupNames[groupIndex] + "-" + suffixes[(i -5) % 6];
-    }
-
     return updatedHeaders;
   };
 
@@ -82,82 +117,97 @@ const ExcelReader = () => {
 
   const generateJson = () => {
     // Filter the rows to exclude invalid waves
-    let newSheetData = sheetData.filter(item => {
-        const wave = item[0];
-        // Skip rows where the wave value is invalid (null, "-", or "")
-        return wave && wave !== "-" && wave !== "";
+    let newSheetData = sheetData.filter((item, index) => {
+      const wave = item[0];
+      // Skip rows where the wave value is invalid (null, "-", or "")
+      return wave && wave !== "-" && wave !== "" && index > 1;
     });
 
-    const jsonData = {
-        waves: newSheetData.map((row) => {
-            const entry = {
-                wave: row[0],
-                'startTime': row[1],
-                'endTime': row[2],
-                'totalWave': row[3],
-                'totalEnemy': row[4],
-                enemylist: []  // Initialize the enemylist
-            };
-
-            let previousIndex = -1;
-            let previousIndexData = [];
-
-            let excludedValue = ["-", ""];
-            let useData = true;
-
-            columnNames.forEach((name, groupIndex) => {
-                const groupStart = 5 + groupIndex * 6;
-                const groupData = [];
-
-                // Loop through each of the 6 columns for this enemy group
-                for (let i = 0; i < 6; i++) {
-                    const columnIndex = groupStart + i;
-                    groupData[i] = row[columnIndex];
-
-                    // If value is excluded, replace it with 0 and reuse previous data if necessary
-                    if (excludedValue.includes(row[columnIndex])) {
-                        if (i == 0) {
-                            useData = false;
-                        }
-                        groupData[i] = 0;
-                        if (useData && previousIndex !== -1) {
-                            groupData[i] = previousIndexData[i];
-                        }
-                    } else {
-                        if (i == 0) {
-                            useData = true;
-                        }
-                    }
-                }
-
-                // If the data is valid, add it to the enemylist as an object with name and stats
-                if (useData) {
-                    previousIndex = groupStart;
-                    previousIndexData = [...groupData];  // Store previous data for reuse
-
-                    // Create the enemy object with the proper structure
-                    const enemyData = {
-                        enemyName: name,  // Name of the enemy (e.g., "a", "normal")
-                        stats: groupData.slice(0, 5),
-                        spawns: groupData[5]
-                    };
-
-                    // Add the enemy data to the enemylist
-                    entry.enemylist.push(enemyData);
-                }
-            });
-
-            return entry;
-        })
+    let waveName = 0;
+    let finalData = {
+      "totalWave": []
     };
+    newSheetData.map((row) => {
+      if (row[0] == "B") {
+        waveName += 1;
+        let newWaveData = {
+          "wave": row[0],
+          "startTime": 0,
+          "endTime": 0,
+          "totalWave": 1,
+          "totalEnemy": 1,
+          "enemylist": [{
+            quantity: 1,
+            scale: 1,
+            minDistance: 0,
+            maxDistance: 0,
+            radious: 0,
+            typeSpawn: "0",
+            totalWave: 1,
+            enemyId: ""
+          }]
+        }
+        let currentData = {
+          "wave": waveName,
+          "data": [newWaveData]
+        }
+        finalData.totalWave.push(currentData);
+        waveName += 1;
+      }
+      else {
+        let currentData = finalData.totalWave.find(a => a.wave == waveName);
+        let newWaveData = {
+          "wave": row[0],
+          "startTime": row[1],
+          "endTime": row[2],
+          "totalWave": row[3],
+          "totalEnemy": row[4],
+          "enemylist": []
+        }
+        let i = 5;
+        for (let j = 0; j < 4; j++) {
+          let enemyData = {
+            "quantity": isNaN(row[i]) ? 0 : row[i],
+            "scale": isNaN(row[i + 1]) ? 0 : row[i + 1],
+            "minDistance": isNaN(row[i + 2]) ? 0 : row[i + 2],
+            "maxDistance": isNaN(row[i + 3]) ? 0 : row[i + 3],
+            radious: isNaN(row[i + 4]) ? 0 : row[i + 4],
+            typeSpawn: row[i + 5],
+            totalWave: isNaN(row[i + 6]) ? 0 : row[i + 6],
+            enemyId: row[i + 7]
+          }
+          i += 8;
+          if (enemyData.enemyId && enemyData.enemyId.trim() != "-") {
+            newWaveData.enemylist.push(enemyData);
+          }
+        }
 
-    // Create the JSON blob and trigger download
-    const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+
+        if (!currentData) {
+          currentData = {
+            "wave": waveName,
+            "data": [newWaveData]
+          }
+          finalData.totalWave.push(currentData);
+        }
+        else {
+          currentData.data = [...currentData.data, newWaveData];
+          finalData.totalWave = finalData.totalWave.map(item => {
+            if (item.wave == waveName) {
+              return currentData;
+            }
+            return item;
+          })
+        }
+
+      }
+    })
+    const blob = new Blob([JSON.stringify(finalData, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'output.json';
     link.click();
-};
+  };
 
 
 
@@ -166,7 +216,7 @@ const ExcelReader = () => {
   return (
     <div style={styles.container}>
       <input type="file" onChange={handleFileUpload} accept=".xlsx, .xls" />
-      
+
       {sheetNames.length > 0 && (
         <select value={selectedSheet} onChange={handleSheetSelect} style={styles.select}>
           {sheetNames.map((name, index) => (
@@ -174,29 +224,40 @@ const ExcelReader = () => {
           ))}
         </select>
       )}
-      
+
       {sheetData && (
         <>
-          <button onClick={openModal} style={styles.button}>Edit Column Names</button>
           <button onClick={generateJson} style={styles.button}>Generate JSON</button>
           <table style={styles.table}>
             <thead>
               <tr style={styles.headerRow}>
-                {updateHeaderNames(Object.keys(sheetData[0])).map((header, index) => (
+                {updateHeaderNames(sheetData[0]).map((header, index) => (
                   index < sheetData[0].length && (
+                    <th key={index} style={styles.headerCell}>{header}</th>
+                  )
+                ))}
+              </tr>
+              <tr style={styles.headerRow}>
+                {updateHeaderNames(sheetData[1]).map((header, index) => (
+                  index < sheetData[1].length && (
                     <th key={index} style={styles.headerCell}>{header}</th>
                   )
                 ))}
               </tr>
             </thead>
             <tbody>
-              {sheetData.map((row, index) => (
-                <tr key={index} style={index % 2 === 0 ? styles.evenRow : styles.oddRow}>
-                  {row.map((cell, i) => (
-                    <td key={i} style={styles.cell}>{cell}</td>
-                  ))}
-                </tr>
-              ))}
+              {sheetData.map((row, index) => {
+                if (index <= 1) {
+                  return (<tr></tr>);
+                }
+                return (
+                  <tr key={index} style={index % 2 === 0 ? styles.evenRow : styles.oddRow}>
+                    {row.map((cell, i) => (
+                      <td key={i} style={styles.cell}>{cell}</td>
+                    ))}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </>
