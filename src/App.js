@@ -120,88 +120,23 @@ const ExcelReader = () => {
     let newSheetData = sheetData.filter((item, index) => {
       const wave = item[0];
       // Skip rows where the wave value is invalid (null, "-", or "")
-      return wave && wave !== "-" && wave !== "" && index > 1;
+      return wave && wave !== "-" && wave !== "" && index > 0;
     });
 
-    let waveName = 0;
     let finalData = {
-      "totalWave": []
-    };
-    newSheetData.map((row) => {
-      if (row[0] == "B") {
-        waveName += 1;
-        let newWaveData = {
-          "wave": row[0],
-          "startTime": 0,
-          "endTime": 0,
-          "totalWave": 1,
-          "totalEnemy": 1,
-          "enemylist": [{
-            quantity: 1,
-            scale: 1,
-            minDistance: 0,
-            maxDistance: 0,
-            radious: 0,
-            typeSpawn: "0",
-            totalWave: 1,
-            enemyId: ""
-          }]
-        }
-        let currentData = {
-          "wave": waveName,
-          "data": [newWaveData]
-        }
-        finalData.totalWave.push(currentData);
-        waveName += 1;
+      "level":[]
+    }
+    newSheetData.forEach(row => {
+      let currentLevel = {
+        level:row[0],
+        material:row[1],
+        gold:row[2],
+        xRate:row[3]
       }
-      else {
-        let currentData = finalData.totalWave.find(a => a.wave == waveName);
-        let newWaveData = {
-          "wave": row[0],
-          "startTime": row[1],
-          "endTime": row[2],
-          "totalWave": row[3],
-          "totalEnemy": row[4],
-          "enemylist": []
-        }
-        let i = 5;
-        for (let j = 0; j < 4; j++) {
-          let enemyData = {
-            "quantity": isNaN(row[i]) ? 0 : row[i],
-            "scale": isNaN(row[i + 1]) ? 0 : row[i + 1],
-            "minDistance": isNaN(row[i + 2]) ? 0 : row[i + 2],
-            "maxDistance": isNaN(row[i + 3]) ? 0 : row[i + 3],
-            radious: isNaN(row[i + 4]) ? 0 : row[i + 4],
-            typeSpawn: row[i + 5],
-            totalWave: isNaN(row[i + 6]) ? 0 : row[i + 6],
-            enemyId: row[i + 7]
-          }
-          i += 8;
-          if (enemyData.enemyId && enemyData.enemyId.trim() != "-") {
-            newWaveData.enemylist.push(enemyData);
-          }
-        }
-
-
-        if (!currentData) {
-          currentData = {
-            "wave": waveName,
-            "data": [newWaveData]
-          }
-          finalData.totalWave.push(currentData);
-        }
-        else {
-          currentData.data = [...currentData.data, newWaveData];
-          finalData.totalWave = finalData.totalWave.map(item => {
-            if (item.wave == waveName) {
-              return currentData;
-            }
-            return item;
-          })
-        }
-
-      }
+      finalData.level.push(currentLevel);
     })
+
+    
     const blob = new Blob([JSON.stringify(finalData, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -233,13 +168,6 @@ const ExcelReader = () => {
               <tr style={styles.headerRow}>
                 {updateHeaderNames(sheetData[0]).map((header, index) => (
                   index < sheetData[0].length && (
-                    <th key={index} style={styles.headerCell}>{header}</th>
-                  )
-                ))}
-              </tr>
-              <tr style={styles.headerRow}>
-                {updateHeaderNames(sheetData[1]).map((header, index) => (
-                  index < sheetData[1].length && (
                     <th key={index} style={styles.headerCell}>{header}</th>
                   )
                 ))}
