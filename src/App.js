@@ -175,7 +175,7 @@ const ExcelReader = () => {
             </thead>
             <tbody>
               {sheetData.map((row, index) => {
-                if (index <= 1) {
+                if (index <= 0) {
                   return (<tr></tr>);
                 }
                 return (
